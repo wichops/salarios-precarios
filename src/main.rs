@@ -1,10 +1,11 @@
+pub mod components;
 pub mod models;
 pub mod schema;
 
 use axum::{
     extract::State,
     http::StatusCode,
-    response::Json,
+    response::{Html, Json},
     routing::{get, post},
     Router,
 };
@@ -27,6 +28,7 @@ async fn main() {
 
     let app = Router::new()
         .route("/", get(list_reviews))
+        .route("/reviews", get(reviews))
         .route("/create", post(create_review))
         .with_state(pool);
 
@@ -49,6 +51,21 @@ struct NewReview {
 #[derive(Debug, Serialize)]
 struct TestResp {
     name: String,
+}
+
+async fn reviews(
+    State(pool): State<deadpool_diesel::postgres::Pool>,
+) -> Result<Html<String>, (StatusCode, String)> {
+    let conn = pool.get().await.map_err(internal_error)?;
+
+    let revs = conn
+        .interact(|conn| reviews::table.select(Review::as_select()).load(conn))
+        .await
+        .map_err(internal_error)?
+        .map_err(internal_error)?;
+
+    // We now return HTML
+    Ok(Html(components::reviews::reviews(revs)))
 }
 
 async fn list_reviews(
