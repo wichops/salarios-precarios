@@ -1,6 +1,11 @@
-POST http://localhost:3000/body
+POST http://localhost:3000/create
 Content-Type: application/json
 
 {
-  "name": "Hola"
+    "weekly_salary": 1100.0,
+    "shift_days_count": 6,
+    "shift_duration": 8
 }
+
+# list reviews
+GET http://localhost:3000
