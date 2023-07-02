@@ -14,29 +14,34 @@ pub fn reviews(reviews: Vec<Review>) -> String {
             Layout {    // <-- Use our layout
                 title: "Reviews Table",
                 table {
+                    class: "table-auto border-collapse w-full text-sm rounded-xl",
                     thead {
                         tr {
-                            th { "ID" }
-                            th { "Salario Semanal" }
-                            th { "Días de trabajo" }
-                            th { "Duración del turno" }
+                            th { class: "font-medium text-left p-2", "ID" }
+                            th { class: "font-medium text-left p-2", "Salario Semanal" }
+                            th { class: "font-medium text-left p-2", "Días de trabajo" }
+                            th { class: "font-medium text-left p-2", "Duración del turno" }
                         }
                     }
                     tbody {
                         cx.props.reviews.iter().map(|review| rsx!(
                             tr {
                                 td {
+                                    class: "p-2 border-b border-slate-100 text-slate-500",
                                     strong {
                                         "{review.id}"
                                     }
                                 }
                                 td {
+                                    class: "p-2 border-b border-slate-100 text-slate-500",
                                     "{review.weekly_salary}"
                                 }
                                 td {
+                                    class: "p-2 border-b border-slate-100 text-slate-500",
                                     "{review.shift_days_count}"
                                 }
                                 td {
+                                    class: "p-2 border-b border-slate-100 text-slate-500",
                                     "{review.shift_duration} hrs"
                                 }
                             }

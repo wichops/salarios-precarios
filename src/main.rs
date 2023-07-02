@@ -11,6 +11,7 @@ use axum::{
 };
 use diesel::prelude::*;
 use serde::{Deserialize, Serialize};
+use tower_http::services::ServeDir;
 
 use models::*;
 use schema::*;
@@ -27,6 +28,7 @@ async fn main() {
         .unwrap();
 
     let app = Router::new()
+        .nest_service("/public", ServeDir::new("public"))
         .route("/", get(list_reviews))
         .route("/reviews", get(reviews))
         .route("/create", post(create_review))
@@ -64,7 +66,6 @@ async fn reviews(
         .map_err(internal_error)?
         .map_err(internal_error)?;
 
-    // We now return HTML
     Ok(Html(components::reviews::reviews(revs)))
 }
 

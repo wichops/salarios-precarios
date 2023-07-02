@@ -2,7 +2,6 @@
 
 use dioxus::prelude::*;
 
-// Remember: owned props must implement PartialEq!
 #[derive(Props)]
 pub struct AppLayoutProps<'a> {
     title: &'a str,
@@ -26,9 +25,49 @@ pub fn Layout<'a>(cx: Scope<'a, AppLayoutProps<'a>>) -> Element {
                 name: "viewport",
                 content: "width=device-width, initial-scale=1"
             }
+            link {
+                href: "public/output.css",
+                rel: "stylesheet",
+                title: "style"
+            }
         }
         body {
-            &cx.props.children
+            header {
+                class: "w-full mb-5 text-gray-700 bg-white border-b border-gray-900/10 shadow-sm",
+                div {
+                    class: "container flex justify-between p-6 mx-auto",
+                    nav {
+                        class: "flex text-base space-x-5",
+                        a {
+                            href: "#",
+                            class: "font-medium hover:text-gray-900",
+                            "Home"
+                        }
+                        a {
+                            href: "#",
+                            class: "font-medium hover:text-gray-900",
+                            "Sueldos"
+                        }
+                        a {
+                            href: "#",
+                            class: "font-medium hover:text-gray-900",
+                            "Acerca de"
+                        }
+                    }
+
+                }
+            }
+            main {
+                class: "px-20",
+
+                h1 {
+                    class: "font-bold mb-4 text-2xl",
+                    "Salarios"
+                }
+
+                &cx.props.children
+
+            }
         }
     ))
 }
