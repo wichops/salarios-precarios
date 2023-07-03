@@ -1,5 +1,6 @@
 #![allow(non_snake_case)]
 
+use crate::components::hero::Hero;
 use dioxus::prelude::*;
 
 #[derive(Props)]
@@ -56,6 +57,10 @@ pub fn Layout<'a>(cx: Scope<'a, AppLayoutProps<'a>>) -> Element {
                     }
 
                 }
+            }
+            Hero {
+                title: "Salarios qleros",
+                subtitle: "Análisis de los salarios de servicio en México"
             }
             main {
                 class: "px-20",
