@@ -10,7 +10,7 @@ use axum::{
     Router,
 };
 use diesel::prelude::*;
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 use tower_http::services::ServeDir;
 
 use models::*;
@@ -31,6 +31,7 @@ async fn main() {
         .nest_service("/public", ServeDir::new("public"))
         .route("/", get(list_reviews))
         .route("/reviews", get(reviews))
+        .route("/places", post(create_place))
         .route("/create", post(create_review))
         .with_state(pool);
 
@@ -48,11 +49,6 @@ struct NewReview {
     weekly_salary: f32,
     shift_days_count: i32,
     shift_duration: i32,
-}
-
-#[derive(Debug, Serialize)]
-struct TestResp {
-    name: String,
 }
 
 async fn reviews(
@@ -94,6 +90,33 @@ async fn create_review(
             diesel::insert_into(reviews::table)
                 .values(new_review)
                 .returning(Review::as_returning())
+                .get_result(conn)
+        })
+        .await
+        .map_err(internal_error)?
+        .map_err(internal_error)?;
+
+    Ok(Json(res))
+}
+
+#[derive(Deserialize, Insertable)]
+#[diesel(table_name = places)]
+struct NewPlace {
+    name: String,
+    address: String,
+}
+
+async fn create_place(
+    State(pool): State<deadpool_diesel::postgres::Pool>,
+    Json(new_place): Json<NewPlace>,
+) -> Result<Json<Place>, (StatusCode, String)> {
+    let conn = pool.get().await.map_err(internal_error)?;
+
+    let res = conn
+        .interact(|conn| {
+            diesel::insert_into(places::table)
+                .values(new_place)
+                .returning(Place::as_returning())
                 .get_result(conn)
         })
         .await

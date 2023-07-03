@@ -12,3 +12,13 @@ pub struct Review {
     pub shift_duration: i32,
     pub social_security: Option<bool>,
 }
+
+#[derive(Serialize, Selectable, Queryable)]
+#[diesel(table_name = crate::schema::places)]
+#[diesel(check_for_backend(diesel::pg::Pg))]
+pub struct Place {
+    pub id: i32,
+    pub name: String,
+    pub address: Option<String>,
+    pub maps_url: Option<String>,
+}

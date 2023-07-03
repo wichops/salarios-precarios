@@ -1,3 +1,4 @@
+# create review
 POST http://localhost:3000/create
 Content-Type: application/json
 
@@ -9,3 +10,12 @@ Content-Type: application/json
 
 # list reviews
 GET http://localhost:3000
+
+# create place
+POST http://localhost:3000/places
+Content-Type: application/json
+
+{
+    "name": "BANETTO",
+    "address": "C. Justo Sierra 2117-local 4, Ladrón de Guevara, Lafayette, 44600 Guadalajara, Jal."
+}
