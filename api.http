@@ -3,19 +3,23 @@ POST http://localhost:3000/create
 Content-Type: application/json
 
 {
-    "weekly_salary": 1100.0,
-    "shift_days_count": 6,
-    "shift_duration": 8
+    "place_id": 1,
+    "weekly_salary": 1200.0,
+    "shift_days_count": 5,
+    "shift_duration": 7
 }
 
 # list reviews
-GET http://localhost:3000
+GET http://localhost:3000/reviews
 
 # create place
 POST http://localhost:3000/places
 Content-Type: application/json
 
 {
-    "name": "BANETTO",
-    "address": "C. Justo Sierra 2117-local 4, Ladrón de Guevara, Lafayette, 44600 Guadalajara, Jal."
+    "name": "VENENO",
+    "address": "Av. de las Américas #1254, Country Club, 44610 Guadalajara, Jal."
 }
+
+# list places
+GET http://localhost:3000/places

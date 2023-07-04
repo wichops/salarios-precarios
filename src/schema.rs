@@ -18,7 +18,10 @@ diesel::table! {
         shift_days_count -> Int4,
         shift_duration -> Int4,
         social_security -> Nullable<Bool>,
+        place_id -> Int4,
     }
 }
+
+diesel::joinable!(reviews -> places (place_id));
 
 diesel::allow_tables_to_appear_in_same_query!(places, reviews,);

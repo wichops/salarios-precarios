@@ -13,8 +13,8 @@ use diesel::prelude::*;
 use serde::Deserialize;
 use tower_http::services::ServeDir;
 
-use models::*;
-use schema::*;
+use crate::models::*;
+use crate::schema::*;
 
 #[tokio::main]
 async fn main() {
@@ -46,6 +46,7 @@ async fn main() {
 #[derive(Deserialize, Insertable)]
 #[diesel(table_name = reviews)]
 struct NewReview {
+    place_id: i32,
     weekly_salary: f32,
     shift_days_count: i32,
     shift_duration: i32,
@@ -53,16 +54,35 @@ struct NewReview {
 
 async fn reviews(
     State(pool): State<deadpool_diesel::postgres::Pool>,
-) -> Result<Html<String>, (StatusCode, String)> {
+) -> Result<(), (StatusCode, String)> {
     let conn = pool.get().await.map_err(internal_error)?;
 
-    let revs = conn
-        .interact(|conn| reviews::table.select(Review::as_select()).load(conn))
+    let (all_places, reviews) = conn
+        .interact(
+            |conn| -> Result<(Vec<Place>, Vec<Review>), diesel::result::Error> {
+                let all_places = places::table.select(Place::as_select()).load(conn)?;
+
+                let reviews = Review::belonging_to(&all_places)
+                    .select(Review::as_select())
+                    .load(conn)?;
+
+                Ok((all_places, reviews))
+            },
+        )
         .await
         .map_err(internal_error)?
         .map_err(internal_error)?;
 
-    Ok(Html(components::reviews::reviews(revs)))
+    let reviews = reviews
+        .grouped_by(&all_places)
+        .into_iter()
+        .zip(all_places)
+        .map(|(reviews, place)| (place, reviews))
+        .collect::<Vec<(Place, Vec<Review>)>>();
+
+    dbg!("xd, {:?}", reviews);
+    Ok(())
+    // Ok(Html(components::reviews::reviews(revs)))
 }
 
 async fn list_reviews(
