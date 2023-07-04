@@ -31,7 +31,7 @@ async fn main() {
         .nest_service("/public", ServeDir::new("public"))
         .route("/", get(list_reviews))
         .route("/reviews", get(reviews))
-        .route("/places", post(create_place))
+        .route("/places", get(list_places).post(create_place))
         .route("/create", post(create_review))
         .with_state(pool);
 
@@ -119,6 +119,20 @@ async fn create_place(
                 .returning(Place::as_returning())
                 .get_result(conn)
         })
+        .await
+        .map_err(internal_error)?
+        .map_err(internal_error)?;
+
+    Ok(Json(res))
+}
+
+async fn list_places(
+    State(pool): State<deadpool_diesel::postgres::Pool>,
+) -> Result<Json<Vec<Place>>, (StatusCode, String)> {
+    let conn = pool.get().await.map_err(internal_error)?;
+
+    let res = conn
+        .interact(|conn| places::table.select(Place::as_select()).load(conn))
         .await
         .map_err(internal_error)?
         .map_err(internal_error)?;
