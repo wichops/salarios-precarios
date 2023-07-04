@@ -54,35 +54,44 @@ struct NewReview {
 
 async fn reviews(
     State(pool): State<deadpool_diesel::postgres::Pool>,
-) -> Result<(), (StatusCode, String)> {
+) -> Result<Html<String>, (StatusCode, String)> {
     let conn = pool.get().await.map_err(internal_error)?;
 
-    let (all_places, reviews) = conn
-        .interact(
-            |conn| -> Result<(Vec<Place>, Vec<Review>), diesel::result::Error> {
-                let all_places = places::table.select(Place::as_select()).load(conn)?;
-
-                let reviews = Review::belonging_to(&all_places)
-                    .select(Review::as_select())
-                    .load(conn)?;
-
-                Ok((all_places, reviews))
-            },
-        )
+    let reviews_with_place = conn
+        .interact(|conn| {
+            reviews::table
+                .inner_join(places::table)
+                .select((Review::as_select(), Place::as_select()))
+                .load::<(Review, Place)>(conn)
+        })
         .await
         .map_err(internal_error)?
         .map_err(internal_error)?;
 
-    let reviews = reviews
-        .grouped_by(&all_places)
-        .into_iter()
-        .zip(all_places)
-        .map(|(reviews, place)| (place, reviews))
-        .collect::<Vec<(Place, Vec<Review>)>>();
+    // let (all_places, reviews) = conn
+    //     .interact(
+    //         |conn| -> Result<(Vec<Place>, Vec<Review>), diesel::result::Error> {
+    //             let all_places = places::table.select(Place::as_select()).load(conn)?;
 
-    dbg!("xd, {:?}", reviews);
-    Ok(())
-    // Ok(Html(components::reviews::reviews(revs)))
+    //             let reviews = Review::belonging_to(&all_places)
+    //                 .select(Review::as_select())
+    //                 .load(conn)?;
+
+    //             Ok((all_places, reviews))
+    //         },
+    //     )
+    //     .await
+    //     .map_err(internal_error)?
+    //     .map_err(internal_error)?;
+
+    // let reviews = reviews
+    //     .grouped_by(&all_places)
+    //     .into_iter()
+    //     .zip(all_places)
+    //     .map(|(reviews, place)| (place, reviews))
+    //     .collect::<Vec<(Place, Vec<Review>)>>();
+
+    Ok(Html(components::reviews::reviews(reviews_with_place)))
 }
 
 async fn list_reviews(

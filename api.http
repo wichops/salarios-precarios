@@ -4,7 +4,7 @@ Content-Type: application/json
 
 {
     "place_id": 1,
-    "weekly_salary": 1200.0,
+    "weekly_salary": 1300.0,
     "shift_days_count": 5,
     "shift_duration": 7
 }

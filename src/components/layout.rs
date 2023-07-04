@@ -46,7 +46,7 @@ pub fn Layout<'a>(cx: Scope<'a, AppLayoutProps<'a>>) -> Element {
                         }
                         a {
                             href: "#",
-                            class: "font-medium hover:text-gray-900",
+                            class: "font-medium text-sky-600 hover:text-gray-900",
                             "Sueldos"
                         }
                         a {
@@ -60,7 +60,7 @@ pub fn Layout<'a>(cx: Scope<'a, AppLayoutProps<'a>>) -> Element {
             }
             Hero {
                 title: "Salarios qleros",
-                subtitle: "Análisis de los salarios de servicio en México"
+                subtitle: "Análisis de los salarios del servicio en México"
             }
             main {
                 class: "px-20",

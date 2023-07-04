@@ -17,11 +17,11 @@ pub fn Hero<'a>(cx: Scope<'a, HeroProps<'a>>) -> Element {
                 div {
                     class: "text-center",
                     h1 {
-                        class: "text-5xl font-bold text-gray-900",
+                        class: "text-5xl font-bold text-sky-600",
                         cx.props.title
                     }
                     p {
-                        class: "text-lg leading-8 mt-8 text-gray-600",
+                        class: "text-lg leading-8 mt-8 text-gray-700",
                         cx.props.subtitle
                     }
                 }

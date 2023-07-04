@@ -1,35 +1,33 @@
 use crate::components::layout::Layout;
-use crate::models::Review;
+use crate::models::{Place, Review};
 use dioxus::prelude::*;
 
 struct Props {
-    reviews: Vec<Review>,
+    reviews: Vec<(Review, Place)>,
 }
 
-// Take a Vec<User> and create an HTML table.
-pub fn reviews(reviews: Vec<Review>) -> String {
-    // Inner function to create our rsx! component
+pub fn reviews(reviews: Vec<(Review, Place)>) -> String {
     fn app(cx: Scope<Props>) -> Element {
         cx.render(rsx! {
-            Layout {    // <-- Use our layout
-                title: "Reviews Table",
+            Layout {
+                title: "Salarios qleros",
                 table {
                     class: "table-auto border-collapse w-full text-sm rounded-xl",
                     thead {
                         tr {
-                            th { class: "font-medium text-left p-2", "ID" }
-                            th { class: "font-medium text-left p-2", "Salario Semanal" }
-                            th { class: "font-medium text-left p-2", "Días de trabajo" }
-                            th { class: "font-medium text-left p-2", "Duración del turno" }
+                            th { class: "font-bold text-left p-2", "Lugar" }
+                            th { class: "font-bold text-left p-2", "Salario Semanal" }
+                            th { class: "font-bold text-left p-2", "Días de trabajo" }
+                            th { class: "font-bold text-left p-2", "Duración del turno" }
                         }
                     }
                     tbody {
-                        cx.props.reviews.iter().map(|review| rsx!(
+                        cx.props.reviews.iter().map(|(review, place)| rsx!(
                             tr {
                                 td {
-                                    class: "p-2 border-b border-slate-100 text-slate-500",
+                                    class: "p-2 border-b border-slate-100 text-sky-600",
                                     strong {
-                                        "{review.id}"
+                                        "{place.name}"
                                     }
                                 }
                                 td {
