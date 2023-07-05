@@ -19,9 +19,22 @@ diesel::table! {
         shift_duration -> Int4,
         social_security -> Nullable<Bool>,
         place_id -> Int4,
+        user_id -> Int4,
+    }
+}
+
+diesel::table! {
+    users (id) {
+        id -> Int4,
+        email -> Text,
     }
 }
 
 diesel::joinable!(reviews -> places (place_id));
+diesel::joinable!(reviews -> users (user_id));
 
-diesel::allow_tables_to_appear_in_same_query!(places, reviews,);
+diesel::allow_tables_to_appear_in_same_query!(
+    places,
+    reviews,
+    users,
+);
