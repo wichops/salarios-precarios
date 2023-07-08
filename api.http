@@ -23,3 +23,12 @@ Content-Type: application/json
 
 # list places
 GET http://localhost:3000/places
+
+
+# protected test1
+GET http://localhost:3000/protected
+Authorization: "Bearer chapalo conche tu mare"
+
+
+# login
+GET http://localhost:3000/login

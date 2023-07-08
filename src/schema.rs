@@ -33,8 +33,4 @@ diesel::table! {
 diesel::joinable!(reviews -> places (place_id));
 diesel::joinable!(reviews -> users (user_id));
 
-diesel::allow_tables_to_appear_in_same_query!(
-    places,
-    reviews,
-    users,
-);
+diesel::allow_tables_to_appear_in_same_query!(places, reviews, users,);

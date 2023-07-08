@@ -2,24 +2,39 @@ pub mod components;
 pub mod models;
 pub mod schema;
 
+use std::error::Error;
+
 use axum::{
-    extract::State,
-    http::StatusCode,
-    response::{Html, Json},
+    extract::{Query, State},
+    http::{header, HeaderMap, HeaderValue, StatusCode},
+    response::{Html, IntoResponse, Json, Redirect},
     routing::{get, post},
     Router,
 };
+use deadpool_diesel::{Manager, Pool};
 use diesel::prelude::*;
-use serde::Deserialize;
+use dotenvy::dotenv;
+use oauth2::{
+    basic::BasicClient, reqwest::async_http_client, AuthUrl, AuthorizationCode, ClientId,
+    ClientSecret, CsrfToken, RedirectUrl, Scope, TokenResponse, TokenUrl,
+};
+use serde::{Deserialize, Serialize};
 use tower_http::services::ServeDir;
 
 use crate::models::*;
 use crate::schema::*;
 
+#[derive(Clone)]
+struct Context {
+    pool: Pool<Manager<PgConnection>>,
+    client: BasicClient,
+}
+
 #[tokio::main]
-async fn main() {
-    let db_url = std::env::var("DATABASE_URL")
-        .unwrap_or_else(|_| "postgres://postgres:monsterfoot@localhost/service_life".to_string());
+async fn main() -> Result<(), Box<dyn Error>> {
+    dotenv().expect(".env file not found");
+
+    let db_url = std::env::var("DATABASE_URL")?;
 
     // setup connection pool
     let manager = deadpool_diesel::postgres::Manager::new(db_url, deadpool_diesel::Runtime::Tokio1);
@@ -27,20 +42,94 @@ async fn main() {
         .build()
         .unwrap();
 
+    let client_id = ClientId::new(std::env::var("AUTH0_CLIENT_ID")?);
+    let client_secret = ClientSecret::new(std::env::var("AUTH0_CLIENT_SECRET")?);
+    let auth_url = AuthUrl::new(std::env::var("AUTH0_URL")? + "/authorize")?;
+    let token_url = TokenUrl::new(std::env::var("AUTH0_URL")? + "/oauth/token")?;
+
+    let client = BasicClient::new(client_id, Some(client_secret), auth_url, Some(token_url))
+        .set_redirect_uri(
+            RedirectUrl::new("http://localhost:3000/callback".to_string())
+                .expect("Invalid redirect URL"),
+        );
+
+    let context = Context { pool, client };
     let app = Router::new()
         .nest_service("/public", ServeDir::new("public"))
         .route("/", get(list_reviews))
         .route("/reviews", get(reviews))
         .route("/places", get(list_places).post(create_place))
         .route("/create", post(create_review))
-        .with_state(pool);
+        .route("/protected", get(protected))
+        .route("/login", get(login))
+        .route("/callback", get(callback))
+        .with_state(context);
 
     println!("Starting server at 0.0.0.0:3000");
 
     axum::Server::bind(&"0.0.0.0:3000".parse().unwrap())
         .serve(app.into_make_service())
+        .await?;
+
+    Ok(())
+}
+
+#[derive(Serialize)]
+struct Protected {
+    msg: String,
+}
+
+async fn login(State(ctx): State<Context>) -> impl IntoResponse {
+    let client = ctx.client;
+
+    let (auth_url, state) = client
+        .authorize_url(CsrfToken::new_random)
+        .add_scope(Scope::new("openid".to_string()))
+        .add_scope(Scope::new("profile".to_string()))
+        .add_scope(Scope::new("email".to_string()))
+        .url();
+
+    let mut headers = HeaderMap::new();
+    headers.insert(
+        header::SET_COOKIE,
+        format!("csrf_token={:?};", state).parse().unwrap(),
+    );
+
+    println!("Go to: {}", auth_url);
+
+    (headers, Redirect::to(auth_url.as_str()))
+}
+
+#[derive(Debug, Deserialize)]
+struct AuthQuery {
+    code: String,
+    state: String,
+}
+
+async fn callback(
+    State(ctx): State<Context>,
+    Query(query): Query<AuthQuery>,
+    headers: HeaderMap,
+) -> Result<String, (StatusCode, String)> {
+    println!("{:?}", headers);
+    println!("{:?}", query);
+
+    let client = ctx.client;
+    let token = client
+        .exchange_code(AuthorizationCode::new(query.code.clone()))
+        .request_async(async_http_client)
         .await
-        .unwrap();
+        .map_err(internal_error)?;
+
+    Ok(token.access_token().secret().to_string())
+}
+
+async fn protected(headers: HeaderMap) -> Result<Json<Protected>, (StatusCode, String)> {
+    println!("{headers:?}");
+
+    Ok(Json(Protected {
+        msg: String::from("protected"),
+    }))
 }
 
 #[derive(Deserialize, Insertable)]
@@ -52,10 +141,8 @@ struct NewReview {
     shift_duration: i32,
 }
 
-async fn reviews(
-    State(pool): State<deadpool_diesel::postgres::Pool>,
-) -> Result<Html<String>, (StatusCode, String)> {
-    let conn = pool.get().await.map_err(internal_error)?;
+async fn reviews(State(state): State<Context>) -> Result<Html<String>, (StatusCode, String)> {
+    let conn = state.pool.get().await.map_err(internal_error)?;
 
     let reviews_with_place = conn
         .interact(|conn| {
@@ -95,9 +182,9 @@ async fn reviews(
 }
 
 async fn list_reviews(
-    State(pool): State<deadpool_diesel::postgres::Pool>,
+    State(state): State<Context>,
 ) -> Result<Json<Vec<Review>>, (StatusCode, String)> {
-    let conn = pool.get().await.map_err(internal_error)?;
+    let conn = state.pool.get().await.map_err(internal_error)?;
 
     let res = conn
         .interact(|conn| reviews::table.select(Review::as_select()).load(conn))
@@ -109,10 +196,10 @@ async fn list_reviews(
 }
 
 async fn create_review(
-    State(pool): State<deadpool_diesel::postgres::Pool>,
+    State(state): State<Context>,
     Json(new_review): Json<NewReview>,
 ) -> Result<Json<Review>, (StatusCode, String)> {
-    let conn = pool.get().await.map_err(internal_error)?;
+    let conn = state.pool.get().await.map_err(internal_error)?;
 
     let res = conn
         .interact(|conn| {
@@ -136,10 +223,10 @@ struct NewPlace {
 }
 
 async fn create_place(
-    State(pool): State<deadpool_diesel::postgres::Pool>,
+    State(state): State<Context>,
     Json(new_place): Json<NewPlace>,
 ) -> Result<Json<Place>, (StatusCode, String)> {
-    let conn = pool.get().await.map_err(internal_error)?;
+    let conn = state.pool.get().await.map_err(internal_error)?;
 
     let res = conn
         .interact(|conn| {
@@ -156,9 +243,9 @@ async fn create_place(
 }
 
 async fn list_places(
-    State(pool): State<deadpool_diesel::postgres::Pool>,
+    State(state): State<Context>,
 ) -> Result<Json<Vec<Place>>, (StatusCode, String)> {
-    let conn = pool.get().await.map_err(internal_error)?;
+    let conn = state.pool.get().await.map_err(internal_error)?;
 
     let res = conn
         .interact(|conn| places::table.select(Place::as_select()).load(conn))
