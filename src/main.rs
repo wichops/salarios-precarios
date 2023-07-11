@@ -2,11 +2,11 @@ pub mod components;
 pub mod models;
 pub mod schema;
 
-use std::error::Error;
+use std::{error::Error, rc::Rc, sync::Arc};
 
 use axum::{
     extract::{Query, State},
-    http::{header, HeaderMap, HeaderValue, StatusCode},
+    http::{header, HeaderMap, StatusCode},
     response::{Html, IntoResponse, Json, Redirect},
     routing::{get, post},
     Router,
@@ -18,6 +18,7 @@ use oauth2::{
     basic::BasicClient, reqwest::async_http_client, AuthUrl, AuthorizationCode, ClientId,
     ClientSecret, CsrfToken, RedirectUrl, Scope, TokenResponse, TokenUrl,
 };
+use rand::distributions::{Alphanumeric, DistString};
 use serde::{Deserialize, Serialize};
 use tower_http::services::ServeDir;
 
@@ -30,6 +31,7 @@ struct Context {
     client: BasicClient,
 }
 
+const SESSION_COOKIE: &str = "session";
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
     dotenv().expect(".env file not found");
@@ -54,6 +56,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
         );
 
     let context = Context { pool, client };
+
     let app = Router::new()
         .nest_service("/public", ServeDir::new("public"))
         .route("/", get(list_reviews))
@@ -106,22 +109,90 @@ struct AuthQuery {
     state: String,
 }
 
+#[derive(Deserialize, Insertable)]
+#[diesel(table_name = users)]
+struct NewUser {
+    email: String,
+}
 async fn callback(
     State(ctx): State<Context>,
     Query(query): Query<AuthQuery>,
-    headers: HeaderMap,
-) -> Result<String, (StatusCode, String)> {
-    println!("{:?}", headers);
-    println!("{:?}", query);
-
+) -> Result<impl IntoResponse, (StatusCode, String)> {
+    let conn = ctx.pool.get().await.map_err(internal_error)?;
     let client = ctx.client;
+
     let token = client
         .exchange_code(AuthorizationCode::new(query.code.clone()))
         .request_async(async_http_client)
         .await
         .map_err(internal_error)?;
 
-    Ok(token.access_token().secret().to_string())
+    let session_cookie = Alphanumeric.sample_string(&mut rand::thread_rng(), 16);
+
+    let req_client = reqwest::Client::new();
+    let user_info = req_client
+        .get("https://dev-ncm5w43saalu6lgg.us.auth0.com/userinfo")
+        .bearer_auth(token.access_token().clone().secret())
+        .send()
+        .await
+        .map_err(internal_error)?
+        .json::<NewUser>()
+        .await
+        .map_err(internal_error)?;
+
+    let user_email = Arc::new(user_info.email);
+    let email = user_email.clone();
+
+    let user = conn
+        .interact(move |conn| {
+            users::table
+                .filter(users::email.eq(email.to_string()))
+                .select(User::as_select())
+                .first(conn)
+        })
+        .await
+        .map_err(internal_error)?;
+
+    let user_id = if let Ok(user) = user {
+        user.id
+    } else {
+        conn.interact(move |conn| {
+            diesel::insert_into(users::table)
+                .values(users::email.eq(user_email.to_string()))
+                .returning(users::id)
+                .get_result::<i32>(conn)
+        })
+        .await
+        .map_err(internal_error)?
+        .map_err(internal_error)?
+    };
+    println!("{}", session_cookie);
+
+    let session: Session = conn
+        .interact(move |conn| {
+            diesel::insert_into(sessions::table)
+                .values((
+                    sessions::user_id.eq(user_id),
+                    sessions::access_token.eq(token.access_token().secret().to_string()),
+                    sessions::session_token.eq(session_cookie.to_string()),
+                ))
+                .returning(Session::as_returning())
+                .get_result(conn)
+        })
+        .await
+        .map_err(internal_error)?
+        .map_err(internal_error)?;
+
+    let session_token = session.session_token.unwrap();
+    let mut headers = HeaderMap::new();
+    headers.insert(
+        header::SET_COOKIE,
+        format!("{SESSION_COOKIE}={:?};", session_token)
+            .parse()
+            .unwrap(),
+    );
+
+    Ok((headers, session_token))
 }
 
 async fn protected(headers: HeaderMap) -> Result<Json<Protected>, (StatusCode, String)> {

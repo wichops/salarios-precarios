@@ -1,7 +1,7 @@
 use diesel::prelude::*;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
-use crate::schema::{places, reviews};
+use crate::schema::{places, reviews, sessions, users};
 
 #[derive(Serialize, Selectable, Queryable, Identifiable, Debug, PartialEq)]
 #[diesel(table_name = places)]
@@ -23,4 +23,21 @@ pub struct Review {
     pub shift_days_count: i32,
     pub shift_duration: i32,
     pub social_security: Option<bool>,
+}
+
+#[derive(Deserialize, Serialize, Selectable, Queryable, Identifiable, Debug, PartialEq)]
+#[diesel(table_name = users)]
+pub struct User {
+    pub id: i32,
+    pub email: String,
+}
+
+#[derive(Serialize, Selectable, Queryable, Identifiable, Associations, Debug, PartialEq)]
+#[diesel(belongs_to(User))]
+#[diesel(table_name = sessions)]
+pub struct Session {
+    pub id: i32,
+    pub user_id: Option<i32>,
+    pub session_token: Option<String>,
+    pub access_token: Option<String>,
 }

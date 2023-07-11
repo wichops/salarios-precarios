@@ -24,6 +24,15 @@ diesel::table! {
 }
 
 diesel::table! {
+    sessions (id) {
+        id -> Int4,
+        session_token -> Nullable<Text>,
+        access_token -> Nullable<Text>,
+        user_id -> Nullable<Int4>,
+    }
+}
+
+diesel::table! {
     users (id) {
         id -> Int4,
         email -> Text,
@@ -32,5 +41,6 @@ diesel::table! {
 
 diesel::joinable!(reviews -> places (place_id));
 diesel::joinable!(reviews -> users (user_id));
+diesel::joinable!(sessions -> users (user_id));
 
-diesel::allow_tables_to_appear_in_same_query!(places, reviews, users,);
+diesel::allow_tables_to_appear_in_same_query!(places, reviews, sessions, users,);
