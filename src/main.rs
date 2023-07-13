@@ -2,36 +2,49 @@ pub mod components;
 pub mod models;
 pub mod schema;
 
-use std::{error::Error, rc::Rc, sync::Arc};
+use std::{error::Error, sync::Arc};
 
 use axum::{
-    extract::{Query, State},
-    http::{header, HeaderMap, StatusCode},
-    response::{Html, IntoResponse, Json, Redirect},
+    extract::{Extension, Query, State},
+    http::{HeaderMap, Request, StatusCode},
+    middleware::{self, Next},
+    response::{Html, IntoResponse, Json, Redirect, Response},
     routing::{get, post},
-    Router,
+    RequestPartsExt, Router,
 };
-use deadpool_diesel::{Manager, Pool};
-use diesel::prelude::*;
+use axum_sessions::{
+    async_session::MemoryStore,
+    extractors::{ReadableSession, WritableSession},
+    SessionLayer,
+};
 use dotenvy::dotenv;
 use oauth2::{
     basic::BasicClient, reqwest::async_http_client, AuthUrl, AuthorizationCode, ClientId,
     ClientSecret, CsrfToken, RedirectUrl, Scope, TokenResponse, TokenUrl,
 };
-use rand::distributions::{Alphanumeric, DistString};
+use rand::{thread_rng, Rng};
 use serde::{Deserialize, Serialize};
 use tower_http::services::ServeDir;
 
+mod prelude {
+    use deadpool_diesel::{Manager, Pool};
+    use diesel::prelude::*;
+
+    pub type Database = Pool<Manager<PgConnection>>;
+}
+
 use crate::models::*;
 use crate::schema::*;
+use diesel::prelude::*;
+use prelude::*;
 
 #[derive(Clone)]
 struct Context {
-    pool: Pool<Manager<PgConnection>>,
+    pool: Database,
     client: BasicClient,
 }
 
-const SESSION_COOKIE: &str = "session";
+type MaybeUser = Option<User>;
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
     dotenv().expect(".env file not found");
@@ -43,6 +56,10 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let pool = deadpool_diesel::postgres::Pool::builder(manager)
         .build()
         .unwrap();
+    let store = MemoryStore::new();
+    let secret = thread_rng().gen::<[u8; 64]>();
+    let session_layer =
+        SessionLayer::new(store, &secret).with_same_site_policy(axum_sessions::SameSite::Lax);
 
     let client_id = ClientId::new(std::env::var("AUTH0_CLIENT_ID")?);
     let client_secret = ClientSecret::new(std::env::var("AUTH0_CLIENT_SECRET")?);
@@ -64,8 +81,12 @@ async fn main() -> Result<(), Box<dyn Error>> {
         .route("/places", get(list_places).post(create_place))
         .route("/create", post(create_review))
         .route("/protected", get(protected))
+        .layer(Extension(MaybeUser::default()))
+        .layer(middleware::from_fn_with_state(context.clone(), auth))
         .route("/login", get(login))
+        .route("/sign_in", get(sign_in))
         .route("/callback", get(callback))
+        .layer(session_layer)
         .with_state(context);
 
     println!("Starting server at 0.0.0.0:3000");
@@ -82,31 +103,31 @@ struct Protected {
     msg: String,
 }
 
+async fn sign_in(mut session: WritableSession, State(_ctx): State<Context>) -> impl IntoResponse {
+    session
+        .insert("signed_in", true)
+        .expect("can't set signed_in");
+
+    Redirect::to("/reviews")
+}
+
 async fn login(State(ctx): State<Context>) -> impl IntoResponse {
     let client = ctx.client;
 
-    let (auth_url, state) = client
+    let (auth_url, _state) = client
         .authorize_url(CsrfToken::new_random)
         .add_scope(Scope::new("openid".to_string()))
         .add_scope(Scope::new("profile".to_string()))
         .add_scope(Scope::new("email".to_string()))
         .url();
 
-    let mut headers = HeaderMap::new();
-    headers.insert(
-        header::SET_COOKIE,
-        format!("csrf_token={:?};", state).parse().unwrap(),
-    );
-
-    println!("Go to: {}", auth_url);
-
-    (headers, Redirect::to(auth_url.as_str()))
+    Redirect::to(auth_url.as_str())
 }
 
 #[derive(Debug, Deserialize)]
 struct AuthQuery {
     code: String,
-    state: String,
+    _state: String,
 }
 
 #[derive(Deserialize, Insertable)]
@@ -117,6 +138,7 @@ struct NewUser {
 async fn callback(
     State(ctx): State<Context>,
     Query(query): Query<AuthQuery>,
+    mut session: WritableSession,
 ) -> Result<impl IntoResponse, (StatusCode, String)> {
     let conn = ctx.pool.get().await.map_err(internal_error)?;
     let client = ctx.client;
@@ -126,8 +148,6 @@ async fn callback(
         .request_async(async_http_client)
         .await
         .map_err(internal_error)?;
-
-    let session_cookie = Alphanumeric.sample_string(&mut rand::thread_rng(), 16);
 
     let req_client = reqwest::Client::new();
     let user_info = req_client
@@ -142,6 +162,10 @@ async fn callback(
 
     let user_email = Arc::new(user_info.email);
     let email = user_email.clone();
+
+    session
+        .insert("email", user_email.to_string())
+        .expect("Can't set email");
 
     let user = conn
         .interact(move |conn| {
@@ -166,15 +190,20 @@ async fn callback(
         .map_err(internal_error)?
         .map_err(internal_error)?
     };
-    println!("{}", session_cookie);
+    session
+        .insert("user_id", user_id)
+        .expect("can't set userid");
+    session
+        .insert("signed_in", true)
+        .expect("can't set signed_in");
 
-    let session: Session = conn
+    let _ = conn
         .interact(move |conn| {
             diesel::insert_into(sessions::table)
                 .values((
                     sessions::user_id.eq(user_id),
+                    sessions::session_token.eq(session.id()),
                     sessions::access_token.eq(token.access_token().secret().to_string()),
-                    sessions::session_token.eq(session_cookie.to_string()),
                 ))
                 .returning(Session::as_returning())
                 .get_result(conn)
@@ -183,21 +212,10 @@ async fn callback(
         .map_err(internal_error)?
         .map_err(internal_error)?;
 
-    let session_token = session.session_token.unwrap();
-    let mut headers = HeaderMap::new();
-    headers.insert(
-        header::SET_COOKIE,
-        format!("{SESSION_COOKIE}={:?};", session_token)
-            .parse()
-            .unwrap(),
-    );
-
-    Ok((headers, session_token))
+    Ok(Redirect::to("/reviews"))
 }
 
 async fn protected(headers: HeaderMap) -> Result<Json<Protected>, (StatusCode, String)> {
-    println!("{headers:?}");
-
     Ok(Json(Protected {
         msg: String::from("protected"),
     }))
@@ -212,7 +230,10 @@ struct NewReview {
     shift_duration: i32,
 }
 
-async fn reviews(State(state): State<Context>) -> Result<Html<String>, (StatusCode, String)> {
+async fn reviews(
+    Extension(user): Extension<User>,
+    State(state): State<Context>,
+) -> Result<Html<String>, (StatusCode, String)> {
     let conn = state.pool.get().await.map_err(internal_error)?;
 
     let reviews_with_place = conn
@@ -249,13 +270,21 @@ async fn reviews(State(state): State<Context>) -> Result<Html<String>, (StatusCo
     //     .map(|(reviews, place)| (place, reviews))
     //     .collect::<Vec<(Place, Vec<Review>)>>();
 
+    println!("USER!?!? {user:?}");
     Ok(Html(components::reviews::reviews(reviews_with_place)))
 }
 
 async fn list_reviews(
+    session: ReadableSession,
     State(state): State<Context>,
 ) -> Result<Json<Vec<Review>>, (StatusCode, String)> {
     let conn = state.pool.get().await.map_err(internal_error)?;
+
+    if session.get::<bool>("signed_in").unwrap_or(false) {
+        println!("LIST signed in!");
+    } else {
+        println!("LIST not signed in");
+    }
 
     let res = conn
         .interact(|conn| reviews::table.select(Review::as_select()).load(conn))
@@ -332,4 +361,52 @@ where
     E: std::error::Error,
 {
     (StatusCode::INTERNAL_SERVER_ERROR, err.to_string())
+}
+
+async fn auth<B>(
+    State(ctx): State<Context>,
+    request: Request<B>,
+    next: Next<B>,
+) -> Result<Response, (StatusCode, String)> {
+    let conn = ctx.pool.get().await.map_err(internal_error)?;
+
+    let (mut parts, body) = request.into_parts();
+    let session_handle: ReadableSession = parts.extract().await.map_err(internal_error)?;
+
+    if let Some(email) = session_handle.get::<String>("email") {
+        println!("My email: {}", email);
+    } else {
+        println!("No email xd");
+    }
+
+    if session_handle.get::<bool>("signed_in").unwrap_or(false) {
+        println!("Logged in!");
+    } else {
+        println!("Shh, it's secret!");
+    }
+
+    match session_handle.get::<i32>("user_id") {
+        Some(user_id) => {
+            println!("LOGGED IN!");
+
+            let user = conn
+                .interact(move |conn| {
+                    users::table
+                        .find(user_id)
+                        .select(User::as_select())
+                        .first(conn)
+                })
+                .await
+                .map_err(internal_error)?
+                .map_err(internal_error)?;
+
+            let mut request = Request::from_parts(parts, body);
+            request.extensions_mut().insert(user);
+            Ok(next.run(request).await)
+        }
+        None => {
+            let request = Request::from_parts(parts, body);
+            Ok(next.run(request).await)
+        }
+    }
 }

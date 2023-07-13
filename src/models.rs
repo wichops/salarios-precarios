@@ -25,7 +25,7 @@ pub struct Review {
     pub social_security: Option<bool>,
 }
 
-#[derive(Deserialize, Serialize, Selectable, Queryable, Identifiable, Debug, PartialEq)]
+#[derive(Deserialize, Serialize, Selectable, Queryable, Identifiable, Debug, PartialEq, Clone)]
 #[diesel(table_name = users)]
 pub struct User {
     pub id: i32,
