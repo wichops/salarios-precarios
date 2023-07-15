@@ -6,7 +6,7 @@ struct Props {
     reviews: Vec<(Review, Place)>,
 }
 
-pub fn reviews(reviews: Vec<(Review, Place)>) -> String {
+pub fn reviews_table(reviews: Vec<(Review, Place)>) -> String {
     fn app(cx: Scope<Props>) -> Element {
         cx.render(rsx! {
             Layout {

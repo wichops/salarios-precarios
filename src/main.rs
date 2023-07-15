@@ -1,48 +1,57 @@
 pub mod components;
 pub mod models;
+pub mod reviews_routes;
 pub mod schema;
 
 use std::{error::Error, sync::Arc};
 
-use axum::{
-    extract::{Extension, Query, State},
-    http::{HeaderMap, Request, StatusCode},
-    middleware::{self, Next},
-    response::{Html, IntoResponse, Json, Redirect, Response},
-    routing::{get, post},
-    RequestPartsExt, Router,
-};
 use axum_sessions::{
     async_session::MemoryStore,
     extractors::{ReadableSession, WritableSession},
     SessionLayer,
 };
 use dotenvy::dotenv;
-use oauth2::{
-    basic::BasicClient, reqwest::async_http_client, AuthUrl, AuthorizationCode, ClientId,
-    ClientSecret, CsrfToken, RedirectUrl, Scope, TokenResponse, TokenUrl,
-};
 use rand::{thread_rng, Rng};
-use serde::{Deserialize, Serialize};
 use tower_http::services::ServeDir;
 
 mod prelude {
-    use deadpool_diesel::{Manager, Pool};
-    use diesel::prelude::*;
+    pub use axum::{
+        extract::{Extension, Query, State},
+        http::{HeaderMap, Request, StatusCode},
+        middleware::{self, Next},
+        response::{Html, IntoResponse, Json, Redirect, Response},
+        routing::{get, post},
+        RequestPartsExt, Router,
+    };
+    pub use oauth2::{
+        basic::BasicClient, reqwest::async_http_client, AuthUrl, AuthorizationCode, ClientId,
+        ClientSecret, CsrfToken, RedirectUrl, Scope, TokenResponse, TokenUrl,
+    };
+
+    pub use deadpool_diesel::{Manager, Pool};
+    pub use diesel::prelude::*;
+    pub use serde::{Deserialize, Serialize};
 
     pub type Database = Pool<Manager<PgConnection>>;
+
+    #[derive(Clone)]
+    pub struct Context {
+        pub pool: Database,
+        pub client: BasicClient,
+    }
+
+    pub fn internal_error<E>(err: E) -> (StatusCode, String)
+    where
+        E: std::error::Error,
+    {
+        (StatusCode::INTERNAL_SERVER_ERROR, err.to_string())
+    }
 }
 
 use crate::models::*;
+use crate::prelude::*;
+use crate::reviews_routes::{create_review, render_reviews};
 use crate::schema::*;
-use diesel::prelude::*;
-use prelude::*;
-
-#[derive(Clone)]
-struct Context {
-    pool: Database,
-    client: BasicClient,
-}
 
 type MaybeUser = Option<User>;
 #[tokio::main]
@@ -77,10 +86,9 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let app = Router::new()
         .nest_service("/public", ServeDir::new("public"))
         .route("/", get(list_reviews))
-        .route("/reviews", get(reviews))
+        .route("/reviews", get(render_reviews))
         .route("/places", get(list_places).post(create_place))
         .route("/create", post(create_review))
-        .route("/protected", get(protected))
         .layer(Extension(MaybeUser::default()))
         .layer(middleware::from_fn_with_state(context.clone(), auth))
         .route("/login", get(login))
@@ -111,23 +119,24 @@ async fn sign_in(mut session: WritableSession, State(_ctx): State<Context>) -> i
     Redirect::to("/reviews")
 }
 
-async fn login(State(ctx): State<Context>) -> impl IntoResponse {
+async fn login(State(ctx): State<Context>, mut session: WritableSession) -> impl IntoResponse {
     let client = ctx.client;
 
-    let (auth_url, _state) = client
+    let (auth_url, state) = client
         .authorize_url(CsrfToken::new_random)
         .add_scope(Scope::new("openid".to_string()))
         .add_scope(Scope::new("profile".to_string()))
         .add_scope(Scope::new("email".to_string()))
         .url();
 
+    session.insert("csrf_token", state.secret()).unwrap();
     Redirect::to(auth_url.as_str())
 }
 
 #[derive(Debug, Deserialize)]
 struct AuthQuery {
     code: String,
-    _state: String,
+    state: String,
 }
 
 #[derive(Deserialize, Insertable)]
@@ -142,6 +151,20 @@ async fn callback(
 ) -> Result<impl IntoResponse, (StatusCode, String)> {
     let conn = ctx.pool.get().await.map_err(internal_error)?;
     let client = ctx.client;
+
+    if let Some(session_state) = session.get::<String>("csrf_token") {
+        if session_state != query.state {
+            return Err((
+                StatusCode::UNAUTHORIZED,
+                "OAuth state not found".to_string(),
+            ));
+        }
+    } else {
+        return Err((
+            StatusCode::UNAUTHORIZED,
+            "OAuth state not found".to_string(),
+        ));
+    }
 
     let token = client
         .exchange_code(AuthorizationCode::new(query.code.clone()))
@@ -215,65 +238,6 @@ async fn callback(
     Ok(Redirect::to("/reviews"))
 }
 
-async fn protected(headers: HeaderMap) -> Result<Json<Protected>, (StatusCode, String)> {
-    Ok(Json(Protected {
-        msg: String::from("protected"),
-    }))
-}
-
-#[derive(Deserialize, Insertable)]
-#[diesel(table_name = reviews)]
-struct NewReview {
-    place_id: i32,
-    weekly_salary: f32,
-    shift_days_count: i32,
-    shift_duration: i32,
-}
-
-async fn reviews(
-    Extension(user): Extension<User>,
-    State(state): State<Context>,
-) -> Result<Html<String>, (StatusCode, String)> {
-    let conn = state.pool.get().await.map_err(internal_error)?;
-
-    let reviews_with_place = conn
-        .interact(|conn| {
-            reviews::table
-                .inner_join(places::table)
-                .select((Review::as_select(), Place::as_select()))
-                .load::<(Review, Place)>(conn)
-        })
-        .await
-        .map_err(internal_error)?
-        .map_err(internal_error)?;
-
-    // let (all_places, reviews) = conn
-    //     .interact(
-    //         |conn| -> Result<(Vec<Place>, Vec<Review>), diesel::result::Error> {
-    //             let all_places = places::table.select(Place::as_select()).load(conn)?;
-
-    //             let reviews = Review::belonging_to(&all_places)
-    //                 .select(Review::as_select())
-    //                 .load(conn)?;
-
-    //             Ok((all_places, reviews))
-    //         },
-    //     )
-    //     .await
-    //     .map_err(internal_error)?
-    //     .map_err(internal_error)?;
-
-    // let reviews = reviews
-    //     .grouped_by(&all_places)
-    //     .into_iter()
-    //     .zip(all_places)
-    //     .map(|(reviews, place)| (place, reviews))
-    //     .collect::<Vec<(Place, Vec<Review>)>>();
-
-    println!("USER!?!? {user:?}");
-    Ok(Html(components::reviews::reviews(reviews_with_place)))
-}
-
 async fn list_reviews(
     session: ReadableSession,
     State(state): State<Context>,
@@ -288,26 +252,6 @@ async fn list_reviews(
 
     let res = conn
         .interact(|conn| reviews::table.select(Review::as_select()).load(conn))
-        .await
-        .map_err(internal_error)?
-        .map_err(internal_error)?;
-
-    Ok(Json(res))
-}
-
-async fn create_review(
-    State(state): State<Context>,
-    Json(new_review): Json<NewReview>,
-) -> Result<Json<Review>, (StatusCode, String)> {
-    let conn = state.pool.get().await.map_err(internal_error)?;
-
-    let res = conn
-        .interact(|conn| {
-            diesel::insert_into(reviews::table)
-                .values(new_review)
-                .returning(Review::as_returning())
-                .get_result(conn)
-        })
         .await
         .map_err(internal_error)?
         .map_err(internal_error)?;
@@ -356,13 +300,6 @@ async fn list_places(
     Ok(Json(res))
 }
 
-fn internal_error<E>(err: E) -> (StatusCode, String)
-where
-    E: std::error::Error,
-{
-    (StatusCode::INTERNAL_SERVER_ERROR, err.to_string())
-}
-
 async fn auth<B>(
     State(ctx): State<Context>,
     request: Request<B>,
@@ -377,12 +314,6 @@ async fn auth<B>(
         println!("My email: {}", email);
     } else {
         println!("No email xd");
-    }
-
-    if session_handle.get::<bool>("signed_in").unwrap_or(false) {
-        println!("Logged in!");
-    } else {
-        println!("Shh, it's secret!");
     }
 
     match session_handle.get::<i32>("user_id") {
