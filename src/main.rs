@@ -6,7 +6,7 @@ pub mod schema;
 use std::{error::Error, sync::Arc};
 
 use axum_sessions::{
-    async_session::MemoryStore,
+    async_session::CookieStore,
     extractors::{ReadableSession, WritableSession},
     SessionLayer,
 };
@@ -65,10 +65,10 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let pool = deadpool_diesel::postgres::Pool::builder(manager)
         .build()
         .unwrap();
-    let store = MemoryStore::new();
-    let secret = thread_rng().gen::<[u8; 64]>();
-    let session_layer =
-        SessionLayer::new(store, &secret).with_same_site_policy(axum_sessions::SameSite::Lax);
+    let store = CookieStore::new();
+    let secret = std::env::var("SESSION_SECRET")?;
+    let session_layer = SessionLayer::new(store, secret.as_bytes())
+        .with_same_site_policy(axum_sessions::SameSite::Lax);
 
     let client_id = ClientId::new(std::env::var("AUTH0_CLIENT_ID")?);
     let client_secret = ClientSecret::new(std::env::var("AUTH0_CLIENT_SECRET")?);
@@ -309,12 +309,6 @@ async fn auth<B>(
 
     let (mut parts, body) = request.into_parts();
     let session_handle: ReadableSession = parts.extract().await.map_err(internal_error)?;
-
-    if let Some(email) = session_handle.get::<String>("email") {
-        println!("My email: {}", email);
-    } else {
-        println!("No email xd");
-    }
 
     match session_handle.get::<i32>("user_id") {
         Some(user_id) => {
