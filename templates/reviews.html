@@ -1,0 +1,24 @@
+{% extends "layout.html" %}
+{% block title %}Salarios{% endblock %}
+{% block content %}
+<table class="table-auto border-collapse w-full text-sm rounded-xl">
+    <thead>
+        <tr>
+            <th class="font-bold text-left p-2">Lugar</th>
+            <th class="font-bold text-left p-2">Salario Semanal</th>
+            <th class="font-bold text-left p-2">Días de trabajo</th>
+            <th class="font-bold text-left p-2">Duración del turno</th>
+        </tr> 
+    </thead>
+    <tbody>
+        {% for (review, place, ) in reviews %}
+        <tr>
+            <td class="p-2 border-b border-slate-100 text-sky-600"><strong>{{ place.name }}</strong></td>
+            <td class="p-2 border-b border-slate-100 text-slate-500">{{ review.weekly_salary }}</td>
+            <td class="p-2 border-b border-slate-100 text-slate-500">{{ review.shift_days_count }}</td>
+            <td class="p-2 border-b border-slate-100 text-slate-500">{{ review.shift_duration }}</td>
+        </tr>
+        {% endfor %}
+    </tbody> 
+</table>
+{% endblock %}

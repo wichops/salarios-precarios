@@ -1,11 +1,9 @@
-pub mod components;
 pub mod models;
 pub mod reviews_routes;
 pub mod schema;
 
 use std::{error::Error, sync::Arc};
 
-use axum::http::response;
 use axum_sessions::{
     async_session::CookieStore,
     extractors::{ReadableSession, WritableSession},
@@ -15,6 +13,7 @@ use dotenvy::dotenv;
 use tower_http::services::ServeDir;
 
 mod prelude {
+    pub use askama::Template;
     pub use axum::{
         extract::{Extension, Query, State},
         http::{HeaderMap, Request, StatusCode},
@@ -53,7 +52,6 @@ use crate::prelude::*;
 use crate::reviews_routes::{create_review, render_reviews};
 use crate::schema::*;
 
-type MaybeUser = Option<User>;
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
     dotenv().expect(".env file not found");
@@ -87,10 +85,9 @@ async fn main() -> Result<(), Box<dyn Error>> {
         .nest_service("/public", ServeDir::new("public"))
         .route("/", get(list_reviews))
         .route("/reviews", get(render_reviews))
+        .layer(middleware::from_fn_with_state(context.clone(), auth))
         .route("/places", get(list_places).post(create_place))
         .route("/create", post(create_review))
-        .layer(Extension(MaybeUser::default()))
-        .layer(middleware::from_fn_with_state(context.clone(), auth))
         .route("/login", get(login))
         .route("/sign_in", get(sign_in))
         .route("/callback", get(callback))
@@ -312,8 +309,6 @@ async fn auth<B>(
 
     match session_handle.get::<i32>("user_id") {
         Some(user_id) => {
-            println!("LOGGED IN!");
-
             let user = conn
                 .interact(move |conn| {
                     users::table

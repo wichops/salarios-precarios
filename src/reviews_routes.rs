@@ -1,4 +1,3 @@
-use crate::components::reviews::reviews_table;
 use crate::models::*;
 use crate::prelude::*;
 use crate::schema::*;
@@ -7,6 +6,7 @@ use crate::schema::*;
 #[diesel(table_name = reviews)]
 pub struct NewReview {
     pub place_id: i32,
+    pub user_id: i32,
     pub weekly_salary: f32,
     pub shift_days_count: i32,
     pub shift_duration: i32,
@@ -32,10 +32,17 @@ pub async fn create_review(
     Ok(Json(res))
 }
 
+#[derive(Template)]
+#[template(path = "reviews.html")]
+pub struct ReviewsTemplate<'a> {
+    pub title: &'a str,
+    pub subtitle: &'a str,
+    pub reviews: Vec<(Review, Place)>,
+}
+
 pub async fn render_reviews(
-    Extension(user): Extension<User>,
     State(state): State<Context>,
-) -> Result<Html<String>, (StatusCode, String)> {
+) -> Result<ReviewsTemplate<'static>, (StatusCode, String)> {
     let conn = state.pool.get().await.map_err(internal_error)?;
 
     let reviews_with_place = conn
@@ -49,29 +56,9 @@ pub async fn render_reviews(
         .map_err(internal_error)?
         .map_err(internal_error)?;
 
-    // let (all_places, reviews) = conn
-    //     .interact(
-    //         |conn| -> Result<(Vec<Place>, Vec<Review>), diesel::result::Error> {
-    //             let all_places = places::table.select(Place::as_select()).load(conn)?;
-
-    //             let reviews = Review::belonging_to(&all_places)
-    //                 .select(Review::as_select())
-    //                 .load(conn)?;
-
-    //             Ok((all_places, reviews))
-    //         },
-    //     )
-    //     .await
-    //     .map_err(internal_error)?
-    //     .map_err(internal_error)?;
-
-    // let reviews = reviews
-    //     .grouped_by(&all_places)
-    //     .into_iter()
-    //     .zip(all_places)
-    //     .map(|(reviews, place)| (place, reviews))
-    //     .collect::<Vec<(Place, Vec<Review>)>>();
-
-    println!("USER!?!? {user:?}");
-    Ok(Html(reviews_table(reviews_with_place)))
+    Ok(ReviewsTemplate {
+        title: "Salarios",
+        subtitle: "Análisis de los salarios del servicio en México",
+        reviews: reviews_with_place,
+    })
 }

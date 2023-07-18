@@ -3,10 +3,11 @@ POST http://localhost:3000/create
 Content-Type: application/json
 
 {
-    "place_id": 1,
-    "weekly_salary": 1300.0,
-    "shift_days_count": 5,
-    "shift_duration": 7
+    "place_id": 2,
+    "user_id": 1,
+    "weekly_salary": 1400.0,
+    "shift_days_count": 6,
+    "shift_duration": 8
 }
 
 # list reviews
@@ -17,8 +18,8 @@ POST http://localhost:3000/places
 Content-Type: application/json
 
 {
-    "name": "VENENO",
-    "address": "Av. de las Américas #1254, Country Club, 44610 Guadalajara, Jal."
+    "name": "Biolento_",
+    "address": "C. Gral. San Martín 350, Col Americana, Obrera, 44140 Guadalajara, Jal."
 }
 
 # list places

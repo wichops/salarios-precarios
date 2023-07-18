@@ -1,0 +1,24 @@
+<html>
+    <head>
+        <title>{% block title %}{{ title }}{% endblock %}</title>
+        <meta charset="utf-8"/>
+        <meta name="viewport" content="width=device-width"/>
+        <link href="public/output.css" rel="stylesheet" title="style" />
+    </head>
+
+    <body>
+        <header class="w-full mb-5 text-gray-700 bg-white border-b border-gray-900">
+            <div class="container flex justify-between p-6 mx-auto">
+                <nav class="flex text-base space-x-5">
+                    <a class="font-medium hover:text-gray-900" href="#">Home</a>
+                    <a class="font-medium text-sky-600 hover:text-gray-900" href="#">Sueldos</a>
+                    <a class="font-medium hover:text-gray-900" href="#">Acerca de</a>
+                </nav>
+            </div>
+        </header>
+        {% include "hero.html" %}
+        <main class="px-20">
+            <h1 class="font-bold mb-4 text-2xl">Salarios</h1>
+            {% block content %}<p>Placeholder content</p>{% endblock %}
+        </main>
+    </body>
