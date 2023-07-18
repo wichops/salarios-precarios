@@ -5,13 +5,13 @@ pub mod schema;
 
 use std::{error::Error, sync::Arc};
 
+use axum::http::response;
 use axum_sessions::{
     async_session::CookieStore,
     extractors::{ReadableSession, WritableSession},
     SessionLayer,
 };
 use dotenvy::dotenv;
-use rand::{thread_rng, Rng};
 use tower_http::services::ServeDir;
 
 mod prelude {
@@ -304,7 +304,7 @@ async fn auth<B>(
     State(ctx): State<Context>,
     request: Request<B>,
     next: Next<B>,
-) -> Result<Response, (StatusCode, String)> {
+) -> Result<impl IntoResponse, (StatusCode, String)> {
     let conn = ctx.pool.get().await.map_err(internal_error)?;
 
     let (mut parts, body) = request.into_parts();
@@ -329,9 +329,9 @@ async fn auth<B>(
             request.extensions_mut().insert(user);
             Ok(next.run(request).await)
         }
-        None => {
-            let request = Request::from_parts(parts, body);
-            Ok(next.run(request).await)
-        }
+        None => Ok(Response::builder()
+            .status(StatusCode::UNAUTHORIZED)
+            .body(Default::default())
+            .unwrap()),
     }
 }
