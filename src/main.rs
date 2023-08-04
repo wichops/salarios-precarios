@@ -20,7 +20,7 @@ mod prelude {
         middleware::{self, Next},
         response::{Html, IntoResponse, Json, Redirect, Response},
         routing::{get, post},
-        RequestPartsExt, Router,
+        Form, RequestPartsExt, Router,
     };
     pub use oauth2::{
         basic::BasicClient, reqwest::async_http_client, AuthUrl, AuthorizationCode, ClientId,
@@ -49,7 +49,7 @@ mod prelude {
 
 use crate::models::*;
 use crate::prelude::*;
-use crate::reviews_routes::{create_review, render_reviews};
+use crate::reviews_routes::{create_review, create_review_json, new_review, render_reviews};
 use crate::schema::*;
 
 #[tokio::main]
@@ -85,11 +85,11 @@ async fn main() -> Result<(), Box<dyn Error>> {
         .nest_service("/public", ServeDir::new("public"))
         .route("/", get(list_reviews))
         .route("/reviews", get(render_reviews))
+        .route("/reviews/new", get(new_review).post(create_review))
         .layer(middleware::from_fn_with_state(context.clone(), auth))
         .route("/places", get(list_places).post(create_place))
-        .route("/create", post(create_review))
+        // .route("/create", post(create_review_json))
         .route("/login", get(login))
-        .route("/sign_in", get(sign_in))
         .route("/callback", get(callback))
         .layer(session_layer)
         .with_state(context);
@@ -101,19 +101,6 @@ async fn main() -> Result<(), Box<dyn Error>> {
         .await?;
 
     Ok(())
-}
-
-#[derive(Serialize)]
-struct Protected {
-    msg: String,
-}
-
-async fn sign_in(mut session: WritableSession, State(_ctx): State<Context>) -> impl IntoResponse {
-    session
-        .insert("signed_in", true)
-        .expect("can't set signed_in");
-
-    Redirect::to("/reviews")
 }
 
 async fn login(State(ctx): State<Context>, mut session: WritableSession) -> impl IntoResponse {
@@ -222,7 +209,7 @@ async fn callback(
             diesel::insert_into(sessions::table)
                 .values((
                     sessions::user_id.eq(user_id),
-                    sessions::session_token.eq(session.id()),
+                    sessions::session_token.eq(session.clone().id()),
                     sessions::access_token.eq(token.access_token().secret().to_string()),
                 ))
                 .returning(Session::as_returning())
@@ -236,16 +223,9 @@ async fn callback(
 }
 
 async fn list_reviews(
-    session: ReadableSession,
     State(state): State<Context>,
 ) -> Result<Json<Vec<Review>>, (StatusCode, String)> {
     let conn = state.pool.get().await.map_err(internal_error)?;
-
-    if session.get::<bool>("signed_in").unwrap_or(false) {
-        println!("LIST signed in!");
-    } else {
-        println!("LIST not signed in");
-    }
 
     let res = conn
         .interact(|conn| reviews::table.select(Review::as_select()).load(conn))
@@ -307,6 +287,7 @@ async fn auth<B>(
     let (mut parts, body) = request.into_parts();
     let session_handle: ReadableSession = parts.extract().await.map_err(internal_error)?;
 
+    println!("{session_handle:?}");
     match session_handle.get::<i32>("user_id") {
         Some(user_id) => {
             let user = conn
@@ -325,7 +306,8 @@ async fn auth<B>(
             Ok(next.run(request).await)
         }
         None => Ok(Response::builder()
-            .status(StatusCode::UNAUTHORIZED)
+            .status(StatusCode::FOUND)
+            .header("Location", "/login")
             .body(Default::default())
             .unwrap()),
     }

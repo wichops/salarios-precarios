@@ -3,7 +3,7 @@
         <title>{% block title %}{{ title }}{% endblock %}</title>
         <meta charset="utf-8"/>
         <meta name="viewport" content="width=device-width"/>
-        <link href="public/output.css" rel="stylesheet" title="style" />
+        <link href="/public/output.css" rel="stylesheet" title="style" />
     </head>
 
     <body>
@@ -16,9 +16,7 @@
                 </nav>
             </div>
         </header>
-        {% include "hero.html" %}
         <main class="px-20">
-            <h1 class="font-bold mb-4 text-2xl">Salarios</h1>
             {% block content %}<p>Placeholder content</p>{% endblock %}
         </main>
     </body>

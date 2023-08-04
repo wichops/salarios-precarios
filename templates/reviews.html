@@ -1,6 +1,10 @@
 {% extends "layout.html" %}
 {% block title %}Salarios{% endblock %}
 {% block content %}
+{% include "hero.html" %}
+<div class="flex justify-end">
+    <a class="ml-2 p-3 rounded bg-sky-600 inline-block w-auto text-white hover:bg-sky-800" href="/reviews/new">Nueva reseña</a>
+</div>
 <table class="table-auto border-collapse w-full text-sm rounded-xl">
     <thead>
         <tr>
